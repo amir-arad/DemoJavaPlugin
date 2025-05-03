@@ -7,38 +7,60 @@ plugins {
 repositories {
     mavenCentral()
     maven { url "https://repo.gradle.org/gradle/libs-releases" } // for gradle-tooling-api
-    flatDir { dirs mcreator_path + '/lib' }
+    flatDir { dirs file("${mcreator_path}/lib") }
 }
 
-group = 'net.mcreator.demojavaplugin'
-version = new JsonSlurper().parse(file('src/main/resources/plugin.json'))['info']['version']
+group = 'net.mcreator.restapiplugin'
+version = new JsonSlurper().parse(file("src${File.separator}main${File.separator}resources${File.separator}plugin.json"))['info']['version']
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+// Use Java 17
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
 configurations {
+    export
     implementation.extendsFrom export
 }
 
 dependencies {
     implementation project(':MCreator')
 
-    project(':MCreator').afterEvaluate(() ->
-            project(":MCreator").configurations.named("implementation").get().dependencies.each {
-                //noinspection ForeignDelegate
-                implementation it
+    // Try to include MCreator dependencies if possible, but don't fail if not available
+    try {
+        project(':MCreator').afterEvaluate {
+            def implConfig = project(":MCreator").configurations.findByName("implementation")
+            if (implConfig) {
+                implConfig.dependencies.each {
+                    //noinspection ForeignDelegate
+                    implementation it
+                }
+            } else {
+                // Try compile configuration for older Gradle versions
+                def compileConfig = project(":MCreator").configurations.findByName("compile")
+                if (compileConfig) {
+                    compileConfig.dependencies.each {
+                        //noinspection ForeignDelegate
+                        implementation it
+                    }
+                }
             }
-    )
+        }
+    } catch (Exception e) {
+        println "Warning: Could not include MCreator dependencies: ${e.message}"
+    }
 
     // Uncomment the following two lines if you need to use JavaFX in your plugin
-    //implementation group: 'org.openjfx', name: 'javafx-web', version: '21.0.2'
-    //implementation group: 'org.openjfx', name: 'javafx-swing', version: '21.0.2'
+    //implementation group: 'org.openjfx', name: 'javafx-web', version: '17.0.2'
+    //implementation group: 'org.openjfx', name: 'javafx-swing', version: '17.0.2'
 
     // Use "export" configuration for dependencies that should be included in the plugin (if MCreator does not provide them)
-    // export group: 'org.example', name: 'example-library', version: '1.2.3'
+    // REST API dependencies
+    export group: 'io.javalin', name: 'javalin', version: '5.6.3'
+    export group: 'com.fasterxml.jackson.core', name: 'jackson-databind', version: '2.15.2'
+    export group: 'org.slf4j', name: 'slf4j-simple', version: '2.0.7'
 }
 
 tasks.jar {
-    archiveFileName.set("demo-plugin.zip")
+    archiveFileName.set("mcreator-restapi-plugin.zip")
 
     from {
         configurations.export.collect { it.isDirectory() ? it : zipTree(it) }
@@ -48,7 +70,7 @@ tasks.jar {
 tasks.register('runMCreatorWithPlugin', JavaExec) {
     dependsOn jar
 
-    environment("MCREATOR_PLUGINS_FOLDER", file("./build/libs"))
+    environment("MCREATOR_PLUGINS_FOLDER", file("build/libs").absolutePath)
     environment("MCREATOR_PLUGINS_DEV", "")
 
     jvmArgs '--add-opens', 'java.base/java.lang=ALL-UNNAMED'
@@ -65,7 +87,7 @@ subprojects { subproject ->
         test {
             dependsOn rootProject.jar
 
-            environment("MCREATOR_PLUGINS_FOLDER", new File(rootProject.projectDir, "/build/libs"))
+            environment("MCREATOR_PLUGINS_FOLDER", new File(rootProject.projectDir, "build${File.separator}libs").absolutePath)
             environment("MCREATOR_PLUGINS_DEV", "")
 
             workingDir = mcreator_path
